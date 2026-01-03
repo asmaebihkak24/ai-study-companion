@@ -1,93 +1,162 @@
 ﻿import streamlit as st
 import os
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 from pypdf import PdfReader
 import io
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
 
-# Charger les variables d'environnement
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("❌ ERREUR: GEMINI_API_KEY non trouvée dans .env")
+    st.error("Cle API manquante")
     st.stop()
 
-#  Configurer Gemini
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-3-flash")
+client = genai.Client(api_key=api_key)
 
-# Page Streamlit
-st.set_page_config(
-    page_title="AI Study Companion",
-    page_icon="📚",
-    layout="wide"
-)
+st.set_page_config(page_title="AI Study Companion", page_icon="📚", layout="wide")
 
-st.title("📚 AI Study Companion")
-st.markdown("**Jour 2 : Upload PDF & Extraction** ")
+st.markdown("""
+<div style='text-align: center; padding: 20px;'>
+    <h1 style='color: #1f77b4;'>📚 AI Study Companion</h1>
+    <p style='color: #666;'>Upload → Resumer → Telecharger</p>
+</div>
+""", unsafe_allow_html=True)
 
-#  ÉTAPE 1 : Test Gemini (gardé du Jour 1)
-st.header("🔧 Test de Connexion Gemini")
-if st.button("Tester la connexion", type="secondary"):
-    try:
-        response = model.generate_content("Connexion OK!")
-        st.success(f"✅ {response.text}")
-    except Exception as e:
-        st.error(f"❌ Erreur: {str(e)}")
+st.sidebar.header("⚙️ Parametres")
+level = st.sidebar.selectbox("Niveau", ["Debutant", "Intermediaire", "Avance"])
 
-#  ÉTAPE 2 : Upload PDF
-st.header("📄 Étape 1 : Upload ton PDF")
-uploaded_file = st.file_uploader(
-    "Choisis un fichier PDF de cours",
-    type="pdf",
-    help="Upload un PDF de cours ou notes (max 10MB)"
-)
+col1, col2 = st.columns([2, 1])
 
-#  ÉTAPE 3 : Extraction du texte
-if uploaded_file is not None:
-    # Afficher infos du fichier
-    st.info(f"📁 Fichier : **{uploaded_file.name}** ({uploaded_file.size / 1024:.1f} KB)")
+with col1:
+    st.header("📄 Upload ton cours")
+    uploaded_file = st.file_uploader("PDF", type="pdf")
+
+if uploaded_file:
+    st.info(f"📁 {uploaded_file.name}")
     
-    # Extraire le texte
-    if st.button(" Extraire le texte du PDF", type="primary"):
-        with st.spinner("Extraction en cours..."):
+    if st.button("🔍 Extraire", type="primary", use_container_width=True):
+        with st.spinner("Lecture..."):
             try:
-                # Lire le PDF
-                pdf_reader = PdfReader(io.BytesIO(uploaded_file.read()))
-                
-                # Extraire tout le texte
-                full_text = ""
-                for page_num, page in enumerate(pdf_reader.pages, 1):
+                pdf = PdfReader(io.BytesIO(uploaded_file.read()))
+                text = ""
+                for page in pdf.pages:
                     page_text = page.extract_text()
-                    if page_text:  # Si la page a du texte
-                        full_text += f"\\n--- PAGE {page_num} ---\\n{page_text}\\n"
+                    if page_text:
+                        text += page_text + "\n"
                 
-                st.session_state.pdf_text = full_text
-                
-                # Afficher le résultat
-                st.success(f" **Extraction réussie!** {len(pdf_reader.pages)} pages extraites")
-                st.metric("Nombre de pages", len(pdf_reader.pages))
-                st.metric("Nombre de caractères", len(full_text))
+                st.session_state.pdf_text = text
+                st.session_state.pdf_pages = len(pdf.pages)
+                st.balloons()
+                st.success(f"✅ {len(pdf.pages)} pages")
                 
             except Exception as e:
-                st.error(f" Erreur extraction: {str(e)}")
+                st.error(f"Erreur: {e}")
 
-#  ÉTAPE 4 : Affichage du contenu
 if "pdf_text" in st.session_state:
-    st.header("Contenu extrait du PDF")
+    with col2:
+        st.metric("Pages", st.session_state.pdf_pages)
     
-    # Aperçu (premiers 2000 caractères)
-    preview = st.session_state.pdf_text[:2000]
-    full_text_button = st.button("Voir le texte complet")
+    st.divider()
+    st.header("🧠 Resume Pedagogique")
     
-    with st.expander(" Aperçu du contenu (clique pour agrandir)"):
-        st.text_area("Aperçu", preview, height=300, disabled=True)
-    
-    if full_text_button:
-        st.text_area("Texte complet", st.session_state.pdf_text, height=400, disabled=True)
-    
-    # Bouton pour vider
-    if st.button(" Nouveau PDF"):
-        del st.session_state.pdf_text
+    if st.button("✨ Generer", type="primary", use_container_width=True):
+        with st.spinner("Gemini cree ton resume..."):
+            try:
+                # ✅ PROMPT PÉDAGOGIQUE
+                prompt = f"""Tu es professeur. CRÉE UN RÉSUMÉ PÉDAGOGIQUE du cours pour étudiant {level}.
 
+OBJECTIF: L'étudiant COMPREND le cours (pas un CV!)
+
+CONTENU À RÉSUMER:
+{st.session_state.pdf_text[:4000]}
+
+FORMAT OBLIGATOIRE:
+## 1. Concepts Fondamentaux
+[Explique les idées principales du cours en langage simple]
+- Concept 1: Explication claire
+- Concept 2: Explication claire
+- Concept 3: Explication claire
+
+## 2. Points Clés à Retenir
+[Les éléments ESSENTIELS pour comprendre et réussir l'examen]
+1. Point important 1: Pourquoi c'est important
+2. Point important 2: Pourquoi c'est important
+3. Point important 3: Pourquoi c'est important
+
+## 3. Comment Ces Concepts Fonctionnent
+[Explique comment les concepts s'appliquent ensemble]
+- Relation entre concepts
+- Applications pratiques
+- Exemples concrets
+
+## 4. Vocabulaire Important
+[Mots clés à connaître]
+- Terme 1: Définition
+- Terme 2: Définition
+- Terme 3: Définition
+
+Sois SIMPLE, CLAIR, PÉDAGOGIQUE."""
+                
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt
+                )
+                
+                st.session_state.summary = response.text
+                st.success("✅ Resume pedagogique genere!")
+                
+            except Exception as e:
+                st.error(f"Erreur: {e}")
+
+if "summary" in st.session_state:
+    st.markdown("### 📝 Ton Resume")
+    st.markdown(st.session_state.summary)
+    
+    # ✅ CRÉER PDF
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Ajouter le contenu
+    for line in st.session_state.summary.split("\n"):
+        if line.strip():
+            elements.append(Paragraph(line, styles['Normal']))
+            elements.append(Spacer(1, 0.2*inch))
+    
+    doc.build(elements)
+    pdf_bytes = pdf_buffer.getvalue()
+    
+    col_dl1, col_dl2, col_dl3 = st.columns(3)
+    with col_dl1:
+        st.download_button(
+            "💾 PDF",
+            pdf_bytes,
+            "resume.pdf",
+            "application/pdf",
+            use_container_width=True
+        )
+    with col_dl2:
+        st.download_button(
+            "💾 Markdown",
+            st.session_state.summary,
+            "resume.md",
+            use_container_width=True
+        )
+    with col_dl3:
+        st.download_button(
+            "💾 TXT",
+            st.session_state.summary,
+            "resume.txt",
+            use_container_width=True
+        )
+
+st.divider()
+if st.button("🔄 Nouveau"):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
