@@ -4,43 +4,43 @@ from dotenv import load_dotenv
 from google import genai
 from pypdf import PdfReader
 import io
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import inch
 
+# Config
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("Cle API manquante")
+    st.error("🔑 Clé API manquante (.env)")
     st.stop()
 
 client = genai.Client(api_key=api_key)
-
 st.set_page_config(page_title="AI Study Companion", page_icon="📚", layout="wide")
 
+# Header
 st.markdown("""
-<div style='text-align: center; padding: 20px;'>
-    <h1 style='color: #1f77b4;'>📚 AI Study Companion</h1>
-    <p style='color: #666;'>Upload → Resumer → Telecharger</p>
+<div style='text-align: center; padding: 2rem; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 15px;'>
+    <h1>📚 AI Study Companion</h1>
+    <p>Upload PDF → Résumé intelligent → Chat interactif → Télécharger</p>
 </div>
 """, unsafe_allow_html=True)
 
-st.sidebar.header("⚙️ Parametres")
-level = st.sidebar.selectbox("Niveau", ["Debutant", "Intermediaire", "Avance"])
+# Sidebar
+st.sidebar.header("⚙️ Niveau")
+level = st.sidebar.selectbox("Niveau d'étude", ["Débutant", "Intermédiaire", "Avancé"])
 
-col1, col2 = st.columns([2, 1])
+# Main columns
+col1, col2 = st.columns([3, 1])
 
+# 📄 UPLOAD PDF
 with col1:
-    st.header("📄 Upload ton cours")
-    uploaded_file = st.file_uploader("PDF", type="pdf")
+    st.header("📁 Upload ton cours PDF")
+    uploaded_file = st.file_uploader("Choisis un PDF", type="pdf", help="Cours, TD, support de cours")
 
 if uploaded_file:
-    st.info(f"📁 {uploaded_file.name}")
+    st.success(f"✅ Fichier: **{uploaded_file.name}**")
     
-    if st.button("🔍 Extraire", type="primary", use_container_width=True):
-        with st.spinner("Lecture..."):
+    if st.button("🔍 Extraire texte", type="primary", use_container_width=True):
+        with st.spinner("Lecture PDF..."):
             try:
                 pdf = PdfReader(io.BytesIO(uploaded_file.read()))
                 text = ""
@@ -50,113 +50,138 @@ if uploaded_file:
                         text += page_text + "\n"
                 
                 st.session_state.pdf_text = text
+                st.session_state.pdf_name = uploaded_file.name
                 st.session_state.pdf_pages = len(pdf.pages)
                 st.balloons()
-                st.success(f"✅ {len(pdf.pages)} pages")
+                st.success(f"📖 **{len(pdf.pages)} pages** extraites!")
                 
             except Exception as e:
-                st.error(f"Erreur: {e}")
+                st.error(f"❌ Erreur PDF: {e}")
 
-if "pdf_text" in st.session_state:
+# Metrics
+if "pdf_pages" in st.session_state:
     with col2:
-        st.metric("Pages", st.session_state.pdf_pages)
-    
+        st.metric("📄 Pages", st.session_state.pdf_pages)
+        st.metric("📊 Taille", f"{len(st.session_state.pdf_text[:1000])}... chars")
+
+# 🧠 RÉSUMÉ
+if "pdf_text" in st.session_state:
     st.divider()
-    st.header("🧠 Resume Pedagogique")
+    st.header("✨ Générer résumé pédagogique")
     
-    if st.button("✨ Generer", type="primary", use_container_width=True):
-        with st.spinner("Gemini cree ton resume..."):
+    if st.button("🎓 Créer résumé", type="primary", use_container_width=True):
+        with st.spinner("Gemini analyse ton cours..."):
             try:
-                # ✅ PROMPT PÉDAGOGIQUE
-                prompt = f"""Tu es professeur. CRÉE UN RÉSUMÉ PÉDAGOGIQUE du cours pour étudiant {level}.
+                prompt = f""" Crée un RÉSUMÉ PÉDAGOGIQUE pour étudiant {level}.
 
-OBJECTIF: L'étudiant COMPREND le cours (pas un CV!)
+CONTENU DU COURS:
+{st.session_state.pdf_text[:6000]}
 
-CONTENU À RÉSUMER:
-{st.session_state.pdf_text[:4000]}
+FORMAT STRICT:
+## 1. Concepts Clés
+- Concept 1: explication simple
+- Concept 2: explication simple  
 
-FORMAT OBLIGATOIRE:
-## 1. Concepts Fondamentaux
-[Explique les idées principales du cours en langage simple]
-- Concept 1: Explication claire
-- Concept 2: Explication claire
-- Concept 3: Explication claire
+## 2. Points Essentiels
+1. Point critique 1
+2. Point critique 2
 
-## 2. Points Clés à Retenir
-[Les éléments ESSENTIELS pour comprendre et réussir l'examen]
-1. Point important 1: Pourquoi c'est important
-2. Point important 2: Pourquoi c'est important
-3. Point important 3: Pourquoi c'est important
+## 3. Exemples Pratiques
+- Application 1
+- Application 2
 
-## 3. Comment Ces Concepts Fonctionnent
-[Explique comment les concepts s'appliquent ensemble]
-- Relation entre concepts
-- Applications pratiques
-- Exemples concrets
+## 4. Vocabulaire
+- Terme1: définition
+- Terme2: définition
 
-## 4. Vocabulaire Important
-[Mots clés à connaître]
-- Terme 1: Définition
-- Terme 2: Définition
-- Terme 3: Définition
+**Sois CLAIR et PÉDAGOGIQUE.**"""
 
-Sois SIMPLE, CLAIR, PÉDAGOGIQUE."""
-                
                 response = client.models.generate_content(
                     model="gemini-2.5-flash",
                     contents=prompt
                 )
                 
                 st.session_state.summary = response.text
-                st.success("✅ Resume pedagogique genere!")
+                st.session_state.pdf_title = st.session_state.pdf_name.replace(".pdf", "")
+                st.rerun()
                 
             except Exception as e:
-                st.error(f"Erreur: {e}")
+                st.error(f"❌ Erreur: {e}")
 
+# 📥 TÉLÉCHARGEMENTS
 if "summary" in st.session_state:
-    st.markdown("### 📝 Ton Resume")
-    st.markdown(st.session_state.summary)
+    st.subheader("📥 Téléchargements")
     
-    # ✅ CRÉER PDF
-    pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
-    elements = []
-    styles = getSampleStyleSheet()
-    
-    # Ajouter le contenu
-    for line in st.session_state.summary.split("\n"):
-        if line.strip():
-            elements.append(Paragraph(line, styles['Normal']))
-            elements.append(Spacer(1, 0.2*inch))
-    
-    doc.build(elements)
-    pdf_bytes = pdf_buffer.getvalue()
-    
-    col_dl1, col_dl2, col_dl3 = st.columns(3)
+    col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         st.download_button(
-            "💾 PDF",
-            pdf_bytes,
-            "resume.pdf",
-            "application/pdf",
+            label="💾 Résumé Markdown",
+            data=st.session_state.summary,
+            file_name=f"{st.session_state.pdf_title}_resume.md",
+            mime="text/markdown",
             use_container_width=True
         )
     with col_dl2:
         st.download_button(
-            "💾 Markdown",
-            st.session_state.summary,
-            "resume.md",
+            label="📄 Résumé TXT",
+            data=st.session_state.summary,
+            file_name=f"{st.session_state.pdf_title}_resume.txt",
+            mime="text/plain",
             use_container_width=True
         )
-    with col_dl3:
-        st.download_button(
-            "💾 TXT",
-            st.session_state.summary,
-            "resume.txt",
-            use_container_width=True
-        )
+    
+    # Afficher résumé
+    with st.expander("👀 Aperçu résumé", expanded=True):
+        st.markdown(st.session_state.summary)
 
+# 💬 CHAT INTERACTIF
 st.divider()
-if st.button("🔄 Nouveau"):
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
+st.header("🤖 Chat avec Gemini (sur ton cours)")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Afficher chat
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# Input chat
+if prompt := st.chat_input("💡 '15 questions', 'quiz VR', 'explique immersion'..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    
+    with st.chat_message("assistant"):
+        with st.spinner("🤔 Gemini réfléchit..."):
+            try:
+                # Contexte intelligent
+                if "summary" in st.session_state:
+                    context = f"""COURS: {st.session_state.pdf_title}
+RÉSUMÉ:
+{st.session_state.summary}
+
+QUESTION: {prompt}
+
+Réponds PÉDAGOGIQUEMENT."""
+                else:
+                    context = prompt
+                
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=context
+                )
+                
+                reply = response.text
+                st.markdown(reply)
+                st.session_state.messages.append({"role": "assistant", "content": reply})
+                
+            except Exception as e:
+                st.error(f"❌ Erreur chat: {e}")
+
+# Clear chat
+col_clear, col_share = st.columns(2)
+with col_clear:
+    if st.button("🗑️ Effacer chat", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
